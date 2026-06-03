@@ -98,25 +98,36 @@ class DatabaseManager:
 
     # ── Connection ──────────────────────────────────────────
     def _connect(self):
-        """Create engine with fallback to SQLite if PostgreSQL is unavailable."""
+        """Create engine with fallback to SQLite if PostgreSQL is unavailable or filesystem is read-only."""
         try:
             self.engine = create_engine(self.url, echo=False, pool_pre_ping=True)
-            # Quick connectivity check
+            # Quick connectivity check and schema creation test
             with self.engine.connect() as conn:
                 conn.execute(
                     __import__("sqlalchemy").text("SELECT 1")
                 )
+            # Try to create tables to verify write permissions
+            Base.metadata.create_all(self.engine)
             self.db_type = "postgresql" if "postgresql" in self.url else "sqlite"
+            self.SessionLocal = sessionmaker(bind=self.engine)
         except (OperationalError, Exception):
-            # Fallback to local SQLite
-            from config import BASE_DIR
-
-            fallback = f"sqlite:///{BASE_DIR / 'ev_battery.db'}"
-            self.engine = create_engine(fallback, echo=False)
-            self.db_type = "sqlite"
-
-        self.SessionLocal = sessionmaker(bind=self.engine)
-        Base.metadata.create_all(self.engine)
+            # Fallback to local SQLite inside a temporary directory (e.g. for Streamlit Cloud read-only filesystem)
+            try:
+                import tempfile
+                from pathlib import Path
+                temp_dir = Path(tempfile.gettempdir())
+                fallback = f"sqlite:///{temp_dir / 'ev_battery.db'}"
+                self.engine = create_engine(fallback, echo=False)
+                Base.metadata.create_all(self.engine)
+                self.db_type = "sqlite"
+                self.SessionLocal = sessionmaker(bind=self.engine)
+            except Exception:
+                # Absolute fallback to in-memory database
+                fallback = "sqlite:///:memory:"
+                self.engine = create_engine(fallback, echo=False)
+                Base.metadata.create_all(self.engine)
+                self.db_type = "sqlite"
+                self.SessionLocal = sessionmaker(bind=self.engine)
 
     # ── Insert helpers ──────────────────────────────────────
     def insert_readings(self, readings: list[dict]) -> None:

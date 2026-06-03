@@ -10,7 +10,10 @@ from pathlib import Path
 # ─── Project Paths ─────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "models"
-MODEL_DIR.mkdir(exist_ok=True)
+try:
+    MODEL_DIR.mkdir(exist_ok=True)
+except Exception:
+    pass
 
 # ─── Database ──────────────────────────────────────────────────
 DATABASE_URL = os.getenv(
